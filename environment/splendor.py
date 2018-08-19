@@ -14,12 +14,14 @@ class Splendor:
 		self.avaliable_actions = ['buy', 'pick', 'reserve']
 		self.colors = ['green', 'white', 'blue', 'black', 'red']
 
-	def reset(self):
+	def reset(self, return_state=True):
 		self.end = False
 		self.set_cards()
 		self.create_players()
 		self.place_tokens()
-		return self.return_state()
+		
+		if return_state:
+			return self.return_state()
 
 	def return_state(self):
 		#shift players so that player thats next to move will be first in list
@@ -29,18 +31,23 @@ class Splendor:
 		shown_tier2 = self.tier2[-min(5, len(self.tier2)):]
 		shown_tier3 = self.tier3[-min(5, len(self.tier3)):]
 
+		#need to check if some mutal objects aint copied in game
 		game = {
 			'players': shifted_players,
-			'tokens': self.tokens,
+			'tokens': self.tokens.copy(),
 			'tier1': shown_tier1,
 			'tier2': shown_tier2,
 			'tier3': shown_tier3,
 			'hidden_t1': len(self.tier1) - len(shown_tier1),
 			'hidden_t2': len(self.tier2) - len(shown_tier2),
 			'hidden_t3': len(self.tier3) - len(shown_tier3),
-			'nobels': self.nobles,
+			'nobels': self.nobles.copy(),
 			'end': self.end
 		}
+
+		if self.end:
+			self.reset(False)
+
 		return game
 
 	def move(self, move):
@@ -80,6 +87,8 @@ class Splendor:
 		self.check_winners()
 
 		self.current_player = (self.current_player + 1) % 4
+
+		return self.return_state()
 
 	def remove_card(self, card):
 		if int(card['tier']) == 1:
