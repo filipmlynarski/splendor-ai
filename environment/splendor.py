@@ -6,6 +6,14 @@ import os
 from copy import deepcopy
 import pandas as pd
 
+GOLD = 5
+NOT_GOLD = 7
+NOBLES = 5
+NOBLEMAN_VALUE = 3
+WINNING_SCORE = 15
+MAXIMUM_TOKENS = 10
+MAXIMUM_RESERVATIONS = 3
+
 
 class Splendor:
 
@@ -25,15 +33,14 @@ class Splendor:
 			return self.return_state()
 
 	def return_state(self):
-		#shift players so that player thats next to move will be first in list
-		shifted_players = self.players[self.current_player:] + self.players[:self.current_player]
-		shifted_players = self.players
+		# Shift players so that player thats next to move will be first in list
+		#shifted_players = self.players[self.current_player:] + self.players[:self.current_player]
+		shifted_players = deepcopy(self.players)
 
 		shown_tier1 = self.tier1[-min(5, len(self.tier1)):]
 		shown_tier2 = self.tier2[-min(5, len(self.tier2)):]
 		shown_tier3 = self.tier3[-min(5, len(self.tier3)):]
 
-		#need to check if some mutal objects aint copied in game
 		game = {
 			'players': shifted_players,
 			'tokens': self.tokens.copy(),
@@ -47,13 +54,14 @@ class Splendor:
 			'end': self.end
 		}
 
-		if self.end:
+		if self.end and self.current_player == 0:
 			self.reset(False)
 
 		return game
 
 	def move(self, move):
 		action = list(move.keys())
+
 		if len(action) != 1:
 			assert False, 'move dict requires exactly one key'
 
@@ -106,9 +114,11 @@ class Splendor:
 			self.tier3 = self.tier1.drop(card_idx)
 
 	def card_to_colors(self, card):
+		# Returns neccesary tokens for this card separated by comas
 		return ','.join(str(int(card[c])) for c in self.colors)
 
 	def show_cards(self):
+		# Returns string versions of all visible cards on board
 		shown_tier1 = self.tier1[-min(5, len(self.tier1)):].reset_index(drop=True)
 		shown_tier2 = self.tier2[-min(5, len(self.tier2)):].reset_index(drop=True)
 		shown_tier3 = self.tier3[-min(5, len(self.tier3)):].reset_index(drop=True)
@@ -120,79 +130,98 @@ class Splendor:
 		return str_tier1 + str_tier2 + str_tier3
 
 	def show_reservations(self):
+		# Returns string versions of cards reserved by current player
 		reservations = self.players[self.current_player]['reservations']
 		return [self.card_to_colors(reservations[i]) for i in range(len(reservations))]
 
 	def can_afford(self, card):
-		#check if requested card is in shown cards or current player reservations
+		str_cards = self.show_cards()
 		str_reservations = self.show_reservations()
 
-		if not any(self.card_to_colors(card) in i for i in self.show_cards() + str_reservations):
+		# Check if requested card is in shown cards or current player reservations
+		if not any(self.card_to_colors(card) in i for i in str_cards + str_reservations):
 			return False
 
+		# Current player assets
 		tokens = self.players[self.current_player]['tokens']
 		cards = self.players[self.current_player]['cards']
+
+		# Tokens needed to buy this card by current player
 		token_diff = [tokens[i] + cards[i] - card[i] for i in self.colors]
 		missing_tokens = abs(sum(i.values[0] for i in token_diff if i.values[0] < 0))
 
+		# Check if player has enough tokens to buy this card
 		if self.players[self.current_player]['tokens']['gold'] >= missing_tokens:
 			return True
 
 		return False
 
 	def buy(self, card):
+		# If this card was reserved
 		if self.card_to_colors(card) in self.show_reservations():
-			#if this card was reserved
 			self.players[self.current_player]['tokens']['gold'] += 1
 			reservations = self.players[self.current_player]['reservations']
 			idx = card.index.tolist()[0]
 			idxes = [i.index.tolist()[0] for i in reservations]
 			to_pop = idxes.index(idx)
 			self.players[self.current_player]['reservations'].pop(to_pop)
+		
 		else:
+			# If player is buying card from board remove it
 			self.remove_card(card)
 
 		for color in self.colors:
-			#this player's cards of certain color
+			# Amount of this player's cards of certain color
 			this_cards = self.players[self.current_player]['cards'][color]
 
-			#if player doesnt have more cards of this color than needed
+			# If player doesnt have more cards of this color than needed
 			if int(card[color]) > this_cards:
-				#subtract missing tokens of this color from player and add them to board
+
+				# Subtract missing tokens of this color from player and put it back on the board
 				necessary_tokens = int(card[color]) - this_cards
 				self.players[self.current_player]['tokens'][color] -= necessary_tokens
 				self.tokens[color] += necessary_tokens
 
-				#tokens of this color after purchase
+				# Player tokens of this color after purchase
 				this_tokens = self.players[self.current_player]['tokens'][color]
 				
-				#if amount of this color tokens is negative equalize it with gold tokens
+				# If amount of this color tokens is negative (means he used gold)
+				# equalize it with gold tokens
 				if this_tokens < 0:
 					self.players[self.current_player]['tokens']['gold'] += this_tokens
 					self.players[self.current_player]['tokens'][color] = 0
 
-					#equlize situation on board
+					# Equlize tokens on board
 					self.tokens['gold'] -= this_tokens
 					self.tokens[color] += this_tokens
 
+		# Add card power (color) to player arsenal and card value to player score
 		card_color = self.colors[int(card['type'])-1]
 		self.players[self.current_player]['cards'][card_color] += 1
 		self.players[self.current_player]['score'] += int(card['value'])
 
 	def can_pick(self, tokens):
+		# Unindexed amouns of certain tokens to pick
 		values = tokens.values()
+
+		# Amount of all picked tokens needs to be between 0 and 3
+		# but amount of certain tokens can't be higher than 2
 		if not 0 <= sum(values) <= 3 or any(i == 3 for i in values):
 			return False
 
+		# If player choosed to pick 2 tokens of certain color
+		# he can not pick any other tokens
 		if any(i == 2 for i in values) and sum(values) != 2:
 			return False
 
+		# Player can not pick more tokens than there is on board
 		for color in tokens:
 			if self.tokens[color] < tokens[color]:
 				return False
 
+		# Player can have at most <MAXIMUM_TOKENS> tokens in total
 		player_tokens = self.players[self.current_player]['tokens'].values()
-		if sum(values) + sum(player_tokens) > 10:
+		if sum(values) + sum(player_tokens) > MAXIMUM_TOKENS:
 			return False
 
 		return True
@@ -203,65 +232,73 @@ class Splendor:
 			self.tokens[color] -= tokens[color]
 
 	def can_reserve(self, card):
-		#current player reservations
+		# Current player reservations
 		this_reservations = self.players[self.current_player]['reservations']
 
-		if len(this_reservations) == 3 or self.tokens['gold'] == 0:
+		# Player can't have more than <MAXIMUM_RESERVATIONS> reservations 
+		# and can't reserve when there's no gold tokens left on board
+		if len(this_reservations) == MAXIMUM_RESERVATIONS or self.tokens['gold'] == 0:
 			return False
 
+		# Player can't reserve cards thats not on board
 		if self.card_to_colors(card) not in self.show_cards():
 			return False
 
 		return True
 
 	def reserve(self, card):
+		# Remove card and one gold token from board 
+		# and add card to player reservations
 		self.remove_card(card)
 		self.players[self.current_player]['reservations'].append(card)
 		self.tokens['gold'] -= 1
 
 	def check_nobles(self):
+		# Check if player that moved as the last could gain any nobleman
 		this_cards = self.players[self.current_player]['cards']
 		for nobleman in range(len(self.nobles)):
 			for color in self.colors:
 				if this_cards[color] < self.nobles.ix[nobleman][color]:
 					break
+
+			# Player can receive at most 1 nobel at reach round which gives him 3 points
 			else:
 				self.players[self.current_player]['nobleman'] += 1
-				self.players[self.current_player]['score'] += 3
+				self.players[self.current_player]['score'] += NOBLEMAN_VALUE
 				self.nobles.drop(nobleman.index.tolist())
 				break
 
 	def check_winners(self):
-		if any(i['score'] >= 15 for i in self.players):
+		if any(i['score'] >= WINNING_SCORE for i in self.players):
 			self.end = True
 
 	def load_cards(self):
-		abspath = '/'.join(os.path.abspath(__file__).split('/')[:-1]) + '/'
+		abspath = '/'.join(os.path.abspath(__file__).split('/')[:-1])
 
-		if not os.path.isfile(abspath + 'cards.csv'):
+		if not os.path.isfile(abspath + '/cards.csv'):
 			assert False, 'cards.csv file does not exist'
-		if not os.path.isfile(abspath + 'nobles.csv'):
+		if not os.path.isfile(abspath + '/nobles.csv'):
 			assert False, 'nobles.csv file does not exist'
 
-		self.primary_cards = pd.read_csv(abspath + 'cards.csv')
-		self.primary_nobles = pd.read_csv(abspath + 'nobles.csv')
+		self.primary_cards = pd.read_csv(abspath + '/cards.csv')
+		self.primary_nobles = pd.read_csv(abspath + '/nobles.csv')
 
 	def place_tokens(self):
 		self.tokens = {
-			'green': 7,
-			'white': 7,
-			'blue': 7,
-			'black': 7,
-			'red': 7,
-			'gold': 5
+			'green': NOT_GOLD,
+			'white': NOT_GOLD,
+			'blue': NOT_GOLD,
+			'black': NOT_GOLD,
+			'red': NOT_GOLD,
+			'gold': GOLD
 		}
 
 	def set_cards(self):
-		#shuffle all the cards together
+		# Shuffle all the cards and nobles
 		shuffled_cards = self.primary_cards.sample(frac=1)
 		shuffled_nobles = self.primary_nobles.sample(frac=1)
 
-		#organize cards in relation to their tier
+		# Organize cards in relation to their tier
 		t1_idx = shuffled_cards['tier'] == 1
 		t2_idx = shuffled_cards['tier'] == 2
 		t3_idx = shuffled_cards['tier'] == 3
@@ -269,10 +306,10 @@ class Splendor:
 		self.tier2 = shuffled_cards.loc[t2_idx].reset_index(drop=True)
 		self.tier3 = shuffled_cards.loc[t3_idx].reset_index(drop=True)
 
-		self.nobles = shuffled_nobles[-5:].reset_index(drop=True)
+		self.nobles = shuffled_nobles[-NOBLES:].reset_index(drop=True)
 
 	def create_players(self):
-		#the player's index, which will move next
+		# The player's index, which will move next
 		self.current_player = 0
 
 		primary_player = {
@@ -297,19 +334,3 @@ class Splendor:
 		}
 
 		self.players = [deepcopy(primary_player) for _ in range(4)]
-
-if __name__ == '__main__':
-	env = Splendor()
-	s = env.return_state()
-	card = s['tier1'][:1]
-
-	for i in range(2):
-		env.move({'pick': {'green': 1, 'blue': 1, 'white': 1}})
-		env.move({'pick': {'black': 1, 'red': 1}})
-
-	env.move({'reserve': card})
-	try:
-		env.move({'buy': card})
-	except:
-		print('maybe next time')
-	print(env.players[0]['cards'])
