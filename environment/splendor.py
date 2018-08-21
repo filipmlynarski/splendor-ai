@@ -236,13 +236,15 @@ class Splendor:
 			self.end = True
 
 	def load_cards(self):
-		if not os.path.isfile('cards.csv'):
+		abspath = '/'.join(os.path.abspath(__file__).split('/')[:-1]) + '/'
+
+		if not os.path.isfile(abspath + 'cards.csv'):
 			assert False, 'cards.csv file does not exist'
-		if not os.path.isfile('nobles.csv'):
+		if not os.path.isfile(abspath + 'nobles.csv'):
 			assert False, 'nobles.csv file does not exist'
 
-		self.primary_cards = pd.read_csv('cards.csv')
-		self.primary_nobles = pd.read_csv('nobles.csv')
+		self.primary_cards = pd.read_csv(abspath + 'cards.csv')
+		self.primary_nobles = pd.read_csv(abspath + 'nobles.csv')
 
 	def place_tokens(self):
 		self.tokens = {
