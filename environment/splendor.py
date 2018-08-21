@@ -3,6 +3,7 @@ warnings.filterwarnings("ignore", message="numpy.dtype size changed")
 warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
 
 import os
+from copy import deepcopy
 import pandas as pd
 
 
@@ -26,6 +27,7 @@ class Splendor:
 	def return_state(self):
 		#shift players so that player thats next to move will be first in list
 		shifted_players = self.players[self.current_player:] + self.players[:self.current_player]
+		shifted_players = self.players
 
 		shown_tier1 = self.tier1[-min(5, len(self.tier1)):]
 		shown_tier2 = self.tier2[-min(5, len(self.tier2)):]
@@ -292,7 +294,7 @@ class Splendor:
 			'reservations': []
 		}
 
-		self.players = [primary_player]*4
+		self.players = [deepcopy(primary_player) for _ in range(4)]
 
 if __name__ == '__main__':
 	env = Splendor()
