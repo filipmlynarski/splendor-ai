@@ -1,7 +1,11 @@
 from environment import splendor
 import os
 import sys
+import numpy as np
+sys.path.insert(0, 'splendor_ai')
+
 from pprint import pprint
+from train_model import load_model, avaliable_outputs, state_to_nodes, step
 
 env = splendor.Splendor()
 s = env.return_state()
@@ -36,6 +40,7 @@ def print_state(state, clear=True):
 			'\tT2 hidden cards: ' + str(state['hidden_t2']) + 
 			'\tT3 hidden cards: ' + str(state['hidden_t3']))
 	print('Boards tokens: ' + str(state['tokens']))
+	print('Nobels:\n' + state['nobels'].to_string(index=False))
 	print()
 	print_players(state['players'])
 
@@ -64,42 +69,90 @@ def get_card(card_idx):
 		reservation = [i for i in player_reservations if card_idx in i.index][0]
 		return reservation
 
+players = [0, 0, 0, 0]
+
+if len(sys.argv) != 1:
+	model_name = sys.argv[1]
+	h5 = ''.join(['splendor_ai/' + model_name, '.h5'])
+	json = ''.join(['splendor_ai/' + model_name, '.json'])
+	if not all(map(os.path.isfile, [h5, json])):
+		print('supplied model "{}" doesn\'t exist'.format(model_name))
+		sys.exit()
+
+	model = load_model('splendor_ai/' + model_name)
+	players[0] = 1
+
 print_state(s, False)
 player_index = 0
 
 while True:
-	sys.stdout.write('player' + str(player_index+1) + ' >> ')
-	try:
-		user_input = input()
-	except:
-		print()
-		break
-
-	if user_input in ['end', 'q', 'bye']:
-		break
-
-	if user_input == '' or user_input == '0':
-		s = env.move({'pick': {}})
-
-	elif user_input[0] == 'p':
-		s = env.move({'pick': {env.colors[i]: int(user_input[1+i]) for i in range(len(env.colors))}})
-
-	elif user_input[0] == 'b':
-		card_idx = int(user_input[1:])
-		card = get_card(card_idx)
-
-		s = env.move({'buy': card})
-
-	elif user_input[0] == 'r':
-		card_idx = int(user_input[1:])
-		card = get_card(card_idx)
-
-		s = env.move({'reserve': card})
-
+	if players[player_index] == 0:
+		bot = False
+		sys.stdout.write('player' + str(player_index+1) + ' >> ')
 	else:
-		print('invalid action, avaliable actions: p b r')
-		continue
+		bot = True
+		sys.stdout.write(model_name + ' >> ')
+		aval_vector = avaliable_outputs(s, env)
 
+		if sum(aval_vector) != 1:
+			aval_vector[-1] = 0
+
+		x = np.array(state_to_nodes(s)).reshape(1, 250)
+		raw_prediction = model.predict(x)
+		prediction = raw_prediction * aval_vector
+		a = np.argmax(prediction[0])
+		if prediction[0][a] <= 0:
+			not0 = prediction != 0
+			a = np.argmax(not0)
+
+		step(a, s, env, True)
+		sys.stdout.write('Press ENTER to confirm')
+		input()
+		s = step(a, s, env)
+
+	if not bot:
+		try:
+			user_input = input()
+		except:
+			print()
+			break
+
+		if user_input in ['end', 'q', 'bye']:
+			break
+
+		if user_input == '' or user_input == '0':
+			move = {'pick': {}}
+
+		elif user_input[0] == 'p':
+			try:
+				move = {'pick': {env.colors[i]: int(user_input[1+i]) for i in range(len(env.colors))}}
+			except Exception as e:
+				print('cant pick, error: ' + str(e))
+				continue
+
+		elif user_input[0] == 'b':
+			card_idx = int(user_input[1:])
+			card = get_card(card_idx)
+
+			move = {'buy': card}
+
+		elif user_input[0] == 'r':
+			card_idx = int(user_input[1:])
+			card = get_card(card_idx)
+
+			move = {'reserve': card}
+
+		else:
+			print('invalid action, avaliable actions: p b r')
+			continue
+
+		try:
+			s = env.move(move)
+		except Exception as e:
+			print('wrong move, error: ' + str(e))
+			continue
+
+	s = env.return_state(False)
 	print_state(s)
 	player_index = (player_index+1) % 4
 
