@@ -32,14 +32,16 @@ class Splendor:
 		if return_state:
 			return self.return_state()
 
-	def return_state(self):
+	def return_state(self, shift=True):
 		# Shift players so that player thats next to move will be first in list
-		#shifted_players = self.players[self.current_player:] + self.players[:self.current_player]
-		shifted_players = deepcopy(self.players)
+		if shift:
+			shifted_players = self.players[self.current_player:] + self.players[:self.current_player]
+		else:
+			shifted_players = deepcopy(self.players)
 
-		shown_tier1 = self.tier1[-min(5, len(self.tier1)):]
-		shown_tier2 = self.tier2[-min(5, len(self.tier2)):]
-		shown_tier3 = self.tier3[-min(5, len(self.tier3)):]
+		shown_tier1 = self.tier1[-min(4, len(self.tier1)):]
+		shown_tier2 = self.tier2[-min(4, len(self.tier2)):]
+		shown_tier3 = self.tier3[-min(4, len(self.tier3)):]
 
 		game = {
 			'players': shifted_players,
@@ -55,7 +57,8 @@ class Splendor:
 		}
 
 		if self.end and self.current_player == 0:
-			self.reset(False)
+			#self.reset(False)
+			pass
 
 		return game
 
@@ -94,7 +97,8 @@ class Splendor:
 			assert False, 'invalied action, avaliable actions: ' + str(self.avaliable_actions)
 
 		self.check_nobles()
-		self.check_winners()
+		if self.current_player == 3:
+			self.check_winners()
 
 		self.current_player = (self.current_player + 1) % 4
 
@@ -105,13 +109,20 @@ class Splendor:
 			card_idx = card.index.tolist()[0]
 			self.tier1 = self.tier1.drop(card_idx)
 
-		if int(card['tier']) == 2:
+		elif int(card['tier']) == 2:
 			card_idx = card.index.tolist()[0]
-			self.tier2 = self.tier1.drop(card_idx)
+			self.tier2 = self.tier2.drop(card_idx)
 
-		if int(card['tier']) == 3:
+		elif int(card['tier']) == 3:
 			card_idx = card.index.tolist()[0]
-			self.tier3 = self.tier1.drop(card_idx)
+			self.tier3 = self.tier3.drop(card_idx)
+
+		else:
+			assert False, 'invalid tier'
+
+	def remove_nobleman(self, nobleman):
+		nobleman_idx = nobleman.index.tolist()[0]
+		self.nobles = self.nobles.drop(nobleman_idx)
 
 	def card_to_colors(self, card):
 		# Returns neccesary tokens for this card separated by comas
@@ -119,9 +130,9 @@ class Splendor:
 
 	def show_cards(self):
 		# Returns string versions of all visible cards on board
-		shown_tier1 = self.tier1[-min(5, len(self.tier1)):].reset_index(drop=True)
-		shown_tier2 = self.tier2[-min(5, len(self.tier2)):].reset_index(drop=True)
-		shown_tier3 = self.tier3[-min(5, len(self.tier3)):].reset_index(drop=True)
+		shown_tier1 = self.tier1[-min(4, len(self.tier1)):].reset_index(drop=True)
+		shown_tier2 = self.tier2[-min(4, len(self.tier2)):].reset_index(drop=True)
+		shown_tier3 = self.tier3[-min(4, len(self.tier3)):].reset_index(drop=True)
 
 		str_tier1 = [self.card_to_colors(shown_tier1.ix[i]) for i in range(len(shown_tier1))]
 		str_tier2 = [self.card_to_colors(shown_tier2.ix[i]) for i in range(len(shown_tier2))]
@@ -257,15 +268,17 @@ class Splendor:
 		# Check if player that moved as the last could gain any nobleman
 		this_cards = self.players[self.current_player]['cards']
 		for nobleman in range(len(self.nobles)):
+			this_nobleman = self.nobles[nobleman: nobleman+1]
 			for color in self.colors:
-				if this_cards[color] < self.nobles.ix[nobleman][color]:
+				if this_cards[color] < int(this_nobleman[color]):
 					break
 
 			# Player can receive at most 1 nobel at reach round which gives him 3 points
 			else:
-				self.players[self.current_player]['nobleman'] += 1
+				self.players[self.current_player]['nobles'] += 1
 				self.players[self.current_player]['score'] += NOBLEMAN_VALUE
-				self.nobles.drop(nobleman.index.tolist())
+				#self.nobles.drop(self.nobles[nobleman].index.tolist())
+				self.remove_nobleman(this_nobleman)
 				break
 
 	def check_winners(self):
