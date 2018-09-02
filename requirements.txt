@@ -1,2 +1,6 @@
 ###### Requirements without Version Specifiers ######
 pandas
+matplotlib
+keras
+tensorflow
+numpy

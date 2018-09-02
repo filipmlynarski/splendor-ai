@@ -5,6 +5,7 @@ This project goal is to contain code to train a model to play board game Splendo
 Installation
 ------------
 ```
+apt-get install python3-tk
 pip3 install -r requirements.txt
 ```
 
