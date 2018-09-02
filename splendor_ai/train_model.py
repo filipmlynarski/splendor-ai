@@ -285,7 +285,7 @@ def load_model(model_name):
 	# load weights into new model
 	loaded_model.load_weights(model_name + ".h5")
 	loaded_model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
-	print("Loaded model from disk")
+	#print("Loaded model from disk")
 
 	return loaded_model
 
@@ -320,7 +320,7 @@ if __name__ == '__main__':
 
 	num_episodes = 4000
 	y = 0.95
-	eps = 0.5
+	eps = 0.95
 	decay_factor = 0.999
 	r_avg_list = []
 	games = []
