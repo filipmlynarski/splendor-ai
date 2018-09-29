@@ -1,8 +1,12 @@
 import sys
-sys.path.insert(0, '..')
+import os
+abspath = '/'.join(os.path.abspath(__file__).split('/')[:-1]) + '/'
+under_abspath = '/'.join(os.path.abspath(__file__).split('/')[:-2])
 
+sys.path.insert(0, under_abspath)
 from environment import splendor
 
+import json
 import numpy as np
 import itertools as it
 import matplotlib.pyplot as plt
@@ -12,21 +16,39 @@ from keras.engine import InputLayer
 from keras.layers import Dense
 from keras.models import model_from_json
 
-from pprint import pprint
-from copy import deepcopy
+import json
 import time
-from datetime import datetime
 import math
+from copy import deepcopy
+from pprint import pprint
+from datetime import datetime
 
-import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
+if not os.path.isdir(abspath + 'brains'):
+	os.mkdir(abspath + 'brains')
+
+if not os.path.isfile(abspath + 'brains.json'):
+	file = open(abspath + 'brains.json', 'w')
+	file.write('{}')
+	file.close()
+else:
+	try:
+		file = open(abspath + 'brains.json', 'r')
+		json.loads(file.read())
+		file.close()
+	except Exception as e:
+		print('could not read brains.json error: ' + str(e))
+		file = open(abspath + 'brains.json', 'w')
+		file.write('{}')
+		file.close()
 
 pick_tokens = {}
 pick_tokens['3'] = list(it.combinations([0,1,2,3,4], 3))
 pick_tokens['2'] = list(it.combinations([0,1,2,3,4], 2))
 pick_tokens['doubles'] = [0,1,2,3,4]
 pick_tokens['1'] = [0,1,2,3,4]
-pick_tokens['0'] = [-1]
+#pick_tokens['0'] = [-1]
 
 input_nodes = sum([
 	#========
@@ -46,18 +68,6 @@ input_nodes = sum([
 		1		# Score
 	])
 ])
-output_nodes = sum([
-	#TOKEN PICKING
-	sum(len(i) for i in pick_tokens.values()),
-	
-	#BUYING AND RESERVING BOARD CARDS
-	3 * 4 * 2,
-	
-	#BUYING RESERVED CARDS
-	3
-])
-
-COLORS = ['green', 'white', 'blue', 'black', 'red']
 
 def print_players(players):
 	for idx in range(len(players)):
@@ -136,62 +146,6 @@ def state_to_nodes(state):
 
 	return return_nodes
 
-def avaliable_outputs(state, env):
-	return_nodes = np.zeros(output_nodes)
-
-	player_tokens = state['players'][0]['tokens']
-
-	if sum(player_tokens.values()) <= 7:
-		for idx, combination in enumerate(pick_tokens['3']):
-			if all(state['tokens'][COLORS[i]] >= 1 for i in combination):
-				return_nodes[idx] = 1
-
-	if sum(player_tokens.values()) <= 8:
-		for idx, combination in enumerate(pick_tokens['2']):
-			if all(state['tokens'][COLORS[i]] >= 1 for i in combination):
-				return_nodes[10 + idx] = 1
-
-		for idx, combination in enumerate(pick_tokens['doubles']):
-			if state['tokens'][COLORS[combination]] >= 2:
-				return_nodes[20 + idx] = 1
-
-	if sum(player_tokens.values()) <= 9:
-		for idx, combination in enumerate(pick_tokens['1']):
-			if state['tokens'][COLORS[combination]] >= 1:
-				return_nodes[25 + idx] = 1
-
-	player_reservations = state['players'][0]['reservations']
-	can_reserve = len(player_reservations) < 3 and state['tokens']['gold'] > 0
-
-	for card in range(len(state['tier1'])):
-		this_card = state['tier1'][card: card+1]
-		if env.can_afford(this_card):
-			return_nodes[30 + card*2] = 1
-		if can_reserve:
-			return_nodes[31 + card*2] = 1
-
-	for card in range(len(state['tier2'])):
-		this_card = state['tier2'][card: card+1]
-		if env.can_afford(this_card):
-			return_nodes[38 + card*2] = 1
-		if can_reserve:
-			return_nodes[39 + card*2] = 1
-
-	for card in range(len(state['tier3'])):
-		this_card = state['tier3'][card: card+1]
-		if env.can_afford(this_card):
-			return_nodes[46 + card*2] = 1
-		if can_reserve:
-			return_nodes[47 + card*2] = 1
-
-	for idx, reservation in enumerate(player_reservations):
-		if env.can_afford(reservation):
-			return_nodes[54+idx] = 1
-
-	return_nodes[-1] = 1
-
-	return return_nodes
-
 def combination_to_tokens(combination):
 	to_pick = {c: 0 for c in COLORS}
 	for color_idx in combination:
@@ -244,8 +198,27 @@ def step(move, state, env, print_move=False):
 		card = state['players'][0]['reservations'][move-54]
 		move = {'buy': card}
 
-	elif move == 57:
-		move = {'pick': {}}
+	elif move in range(57, 87):
+		if move in range(57, 67):
+			combination = pick_tokens['3'][move-57]
+			tokens = combination_to_tokens(combination)
+
+		elif move in range(67, 77):
+			combination = pick_tokens['2'][(move-57)%10]
+			tokens = combination_to_tokens(combination)
+
+		elif move in range(77, 82):
+			combination = pick_tokens['doubles'][(move-57)%5]
+			tokens = {COLORS[combination]: 2}
+
+		elif move in range(82, 87):
+			combination = pick_tokens['1'][(move-57)%5]
+			tokens = {COLORS[combination]: 1}
+
+		move = {'return': tokens}
+
+	elif move == 87:
+		move = {'pick': {}}		
 
 	else:
 		print('invalid move: ' + str(move))
@@ -255,7 +228,27 @@ def step(move, state, env, print_move=False):
 		return
 	return env.move(move)
 
-def reward(state, a, last_state):
+def choose_action(s, model, env):
+	aval_vector = env.avaliable_outputs()
+	if sum(aval_vector) != 1:
+		aval_vector[-1] = 0
+
+	if np.random.random() < this_brain['eps']:
+		raw_prediction = np.random.rand(1, output_nodes)
+
+	else:
+		x = np.array(state_to_nodes(s)).reshape(1, input_nodes)
+		raw_prediction = model.predict(x)
+				
+	prediction = raw_prediction * aval_vector
+	a = np.argmax(prediction[0])
+	if prediction[0][a] <= 0:
+		not0 = prediction != 0
+		a = np.argmax(not0)
+
+	return a
+
+def reward(state, last_state):
 	me = state['players'][0]
 	last_me = last_state['players'][0]
 	score_difference = me['score'] - last_me['score']
@@ -263,28 +256,34 @@ def reward(state, a, last_state):
 	good_boy = cards_difference + score_difference**2
 	if good_boy != 0:
 		return good_boy
-	return -.2
+	return -.4
 
 def dump_model(model, model_name):
 	# serialize model to JSON
-	model_json = model.to_json()
-	with open(model_name + ".json", "w") as json_file:
-		json_file.write(model_json)
+	#model_json = model.to_json()
+	#with open(abspath + model_name + ".json", "w") as json_file:
+	#	json_file.write(model_json)
 	
 	# serialize weights to HDF5
-	model.save_weights(model_name + ".h5")
-	print("Saved model to disk")
+	model.save_weights(abspath + 'brains/' + model_name + ".h5")
+	print("Saved model to disk {}".format(abspath + 'brains/' + model_name))
 
 def load_model(model_name):
 	# load json and create model
-	json_file = open(model_name + '.json', 'r')
-	loaded_model_json = json_file.read()
-	json_file.close()
-	loaded_model = model_from_json(loaded_model_json)
-	
+	#print("Loading model from disk {}".format(abspath + model_name))
+	#json_file = open(abspath + model_name + '.json', 'r')
+	#loaded_model_json = json_file.read()
+	#json_file.close()
+	#loaded_model = model_from_json(loaded_model_json)
+	hidden_layer_size = int((input_nodes+output_nodes) / 2)
+	loaded_model = Sequential()
+	loaded_model.add(InputLayer(batch_input_shape=(1, input_nodes)))
+	loaded_model.add(Dense(hidden_layer_size, activation='sigmoid'))
+	loaded_model.add(Dense(hidden_layer_size, activation='sigmoid'))
+	loaded_model.add(Dense(output_nodes, activation='linear'))
 	# load weights into new model
-	loaded_model.load_weights(model_name + ".h5")
-	loaded_model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
+	loaded_model.load_weights(abspath + 'brains/' + model_name + ".h5")
+	loaded_model.compile(loss='mse', optimizer='adam', metrics=['mae'])
 	#print("Loaded model from disk")
 
 	return loaded_model
@@ -293,14 +292,22 @@ def create_model(hidden_layer_size, output_nodes):
 	model = Sequential()
 	model.add(InputLayer(batch_input_shape=(1, input_nodes)))
 	model.add(Dense(hidden_layer_size, activation='sigmoid'))
+	model.add(Dense(hidden_layer_size, activation='sigmoid'))
 	model.add(Dense(output_nodes, activation='linear'))
 	model.compile(loss='mse', optimizer='adam', metrics=['mae'])
 	return model
 
+def save(brains_json):
+	file = open(abspath + 'brains.json', 'w')
+	file.write(json.dumps(brains_json, indent=4))
+	file.close()
+
 
 if __name__ == '__main__':
 	env = splendor.Splendor()
+
 	COLORS = env.colors
+	output_nodes = env.output_nodes
 
 	hidden_layer_size = int((input_nodes+output_nodes) / 2)
 
@@ -309,24 +316,50 @@ if __name__ == '__main__':
 	else:
 		model_name = sys.argv[1]
 	
-	if os.path.isfile(model_name + '.h5') and os.path.isfile(model_name + '.json'):
+	file = open(abspath + 'brains.json', 'r')
+	brains_info = json.loads(file.read())
+	file.close()
+
+	if model_name in brains_info and os.path.isfile(abspath + 'brains/' + model_name + '.h5'):
 		print('loading model "{}"'.format(model_name))
+		h5_path = brains_info[model_name]['h5_path']
+
 		model = load_model(model_name)
-		dumb_model = load_model(model_name)
+		dumb_models = [load_model(model_name) for _ in range(4)]
+
 	else:
 		print('creating model "{}"'.format(model_name))
-		model = create_model(hidden_layer_size, output_nodes)
-		dumb_model = create_model(hidden_layer_size, output_nodes)
+		brains_info[model_name] = {
+			'h5_path': abspath + 'brains/' + model_name,
+			'num_episodes': 100,
+			'episodes_done': 0,
+			'y': 0.95,
+			'eps': 0.4,
+			'decay_factor': 0.98,
+			'renew_dumb_ai': 400
+		}
 
-	num_episodes = 4000
-	y = 0.95
-	eps = 0.95
-	decay_factor = 0.999
+		if len(sys.argv) > 2:
+			argument_keys = ['num_episodes', 'episodes_done', 'y', 'eps', 'decay_factor', 'renew_dumb_ai']
+			for idx, argument in enumerate(sys.argv[2:]):
+				arg_idx = argument_keys[idx]
+				current_argument = brains_info[model_name][arg_idx]
+
+				brains_info[model_name][arg_idx] = type(current_argument)(argument)
+
+		model = create_model(hidden_layer_size, output_nodes)
+		dumb_models = [create_model(hidden_layer_size, output_nodes) for _ in range(4)]
+		save(brains_info)
+
+	this_brain = brains_info[model_name]
+	
 	r_avg_list = []
 	games = []
-	renew_dumb_ai = 500
 
-	training_s = 11*num_episodes
+
+	num_episodes = this_brain['num_episodes'] - this_brain['episodes_done']
+
+	training_s = 15*num_episodes
 	training_m = int(training_s/60)
 	training_h = int(training_m/60)
 
@@ -340,110 +373,64 @@ if __name__ == '__main__':
 	print('starting training at: ' + datetime.utcfromtimestamp(60*60*2 + time.time()).strftime('%Y-%m-%d %H:%M:%S'))
 	print('estimated training time: ' + training_time + ', finish prediction: ' + finish_time)
 
-	for i in range(num_episodes):
+	for i in range(this_brain['episodes_done'], this_brain['num_episodes']):
 		s = deepcopy(env.reset())
-		eps *= decay_factor
+		this_brain['eps'] *= this_brain['decay_factor']
 		if i % 100 == 0:
 			print("Episode {} of {}".format(i + 1, num_episodes))
 		done = False
 		r_sum = 0
 		r = 0
 		game_start = time.time()
-		inv = False
+		game_round = 0
 
 		while not done:
-			mr_57 = 0
-			aval_vector = avaliable_outputs(s)
-			if sum(aval_vector) != 1:
-				aval_vector[-1] = 0
+			game_round += 1
+			mr_87 = 0
 
-			if np.random.random() < eps:
-				raw_prediction = np.random.rand(1, output_nodes)
-
-			else:
-				x = np.array(state_to_nodes(s)).reshape(1, 250)
-				raw_prediction = model.predict(x)
-				
-			prediction = raw_prediction * aval_vector
-			#prediction[0][-1] = -100
-			a = np.argmax(prediction[0])
-			#print('not zeros:', sum(prediction[0] != 0))
-			#print('first action:', a)
-			if prediction[0][a] <= 0:
-				not0 = prediction != 0
-				a = np.argmax(not0)
-				#a = np.argmax(_)
-			#print('scecord action:', a)
-
-			if a == 57:
-				mr_57 += 1
-
-			try:
-				new_s = step(a, s)
-			except Exception as e:
-				print(1)
-				print(str(e))
-				print(s)
-				print(a)
-				print(step(a, s, print_move=True))
-				#sys.exit()
-				break
-
-
-			for dumb_move in range(3):
-				aval_vector = avaliable_outputs(new_s)
-				if sum(aval_vector) != 1:
-					aval_vector[-1] = 0
-
-				if np.random.random() < eps:
-					raw_prediction = np.random.rand(1, output_nodes)
-
-				else:
-					x = np.array(state_to_nodes(new_s)).reshape(1, 250)
-					raw_prediction = dumb_model.predict(x)
-
-				prediction = raw_prediction * aval_vector
-				#prediction[0][-1] = -100
-				dumb_a = np.argmax(prediction[0])
-				#print('not zeros:', sum(prediction[0] != 0))
-				#print('first action:', dumb_a)
-				if prediction[0][dumb_a] <= 0:
-					not0 = prediction != 0
-					dumb_a = np.argmax(not0)
-				#print('second action:', dumb_a)
-
-				if dumb_a == 57:
-					mr_57 += 1
-
+			while True:
+				a = choose_action(s, model, env)
 				try:
-					new_s = step(dumb_a, new_s)
-				except Exception as e:
-					print(2)
-					print(str(e))
-					print(new_s)
-					print(dumb_a)
-					print(step(dumb_a, new_s, print_move=True))
-					#sys.exit()
-					inv = True
+					new_s = step(a, s, env)
+				except:
+					print_state(s)
+					step(a, s, env, True)
+					1/0
+
+				if not new_s['return_tokens']:
 					break
 
-			if inv:
-				break
+			if a == 87:
+				mr_87 += 1
 
-			r = reward(new_s, a, s)
-			#print(r)
+			for dumb_model in dumb_models:
+				while True:
+					dumb_a = choose_action(new_s, dumb_model, env)
+					try:
+						new_s = step(dumb_a, new_s, env)
+					except:
+						print_state(new_s)
+						step(dumb_a, new_s, env, True)
+						1/0
+
+					if not new_s['return_tokens']:
+						break
+				if dumb_a == 87:
+					mr_87 += 1
+
+			r = reward(new_s, s)
 
 			done = new_s['end']
-			aval_vector = avaliable_outputs(new_s)
-			new_x = np.array(state_to_nodes(new_s)).reshape(1, 250)
-			target = r + y * np.max(model.predict(new_x)*aval_vector)
+			aval_vector = env.avaliable_outputs()
+			new_x = np.array(state_to_nodes(new_s)).reshape(1, input_nodes)
+			target = r + this_brain['y'] * np.max(model.predict(new_x)*aval_vector)
 			target_vec = model.predict(new_x)[0]
 			target_vec[a] = target
 			model.fit(new_x, target_vec.reshape(-1, output_nodes), epochs=1, verbose=0)
 			s = deepcopy(new_s)
 			r_sum += r
 
-			if mr_57 == 4:
+			if mr_87 == 4 or game_round > 60:
 				break
 
 		if any(i['score'] >= 15 for i in s['players']):
@@ -455,7 +442,8 @@ if __name__ == '__main__':
 				games.append(0)
 				#print('game ' + str(i+1) + ' status: lost')
 
-			finish_time = str(i+1) + ' game finished in: ' + str(int(time.time()-game_start)) + 's'
+			game_time = int(time.time()-game_start)
+			finish_time = str(i+1) + ' game finished in: ' + str(game_time) + 's'
 
 			last_20 = games[-min(len(games), 20):]
 			games20_summary = str(sum(last_20)) + '/' + str(len(last_20))
@@ -475,16 +463,19 @@ if __name__ == '__main__':
 			#print_state(new_s, False)
 			print(str(i+1) + ' game finished because of 4 empty moves')
 		
-		if i%renew_dumb_ai == 0 and i != 0:
+		if i%this_brain['renew_dumb_ai'] == 0 and i != 0:
 			dump_model(model, model_name)
-			dumb_model = load_model(model_name)
+			dumb_models = [load_model(model_name) for _ in range(4)]
+			this_brain['episodes_done'] = i
+			save(this_brain)
 		
 		r_avg_list.append(r_sum)
 
 		if os.path.isfile('stop'):
+			print('stopping')
 			break
 
-	chunk = 5
+	chunk = 10
 	r_mean = []
 	for i in range(int(math.ceil(len(r_avg_list)/chunk))):
 		r_mean.append(np.mean(r_avg_list[chunk*i: min(chunk*(i+1), len(r_avg_list))]))
@@ -493,3 +484,5 @@ if __name__ == '__main__':
 	plt.show()
 
 	dump_model(model, model_name)
+	this_brain['episodes_done'] = i
+	save(this_brain)
