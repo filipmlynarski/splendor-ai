@@ -9,6 +9,13 @@ apt-get install python3-tk
 pip3 install -r requirements.txt
 ```
 
+Train model
+-----------
+```
+cd splendor_ai
+python3 train_model.py model_name
+```
+
 Try Playing Yourself
 -----------
 ```
