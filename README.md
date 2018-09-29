@@ -5,7 +5,8 @@ This project contain code to train a model to play board game Splendor.
 Installation
 ------------
 ```
-apt-get install python3-tk
+git clone https://github.com/filipmlynarski/splendor-ai.git
+sudo apt-get install python3-tk
 pip3 install -r requirements.txt
 ```
 
@@ -19,5 +20,5 @@ python3 train_model.py model_name
 Try Playing Yourself
 -----------
 ```
-python3 interactive_splendor.py
+python3 interactive_splendor.py p model_name
 ```
