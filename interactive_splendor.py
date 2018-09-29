@@ -56,7 +56,7 @@ def color_card(card):
 	return(' '.join(card))
 
 def color_nobel(nobel):
-	return '  '.join(colored(u'\u25C9', term_colors[idx]) * int(i) if i != '0' else ' ' for idx ,i in enumerate(nobel.split()))
+	return '  '.join(colored(u'\u25AE', term_colors[idx]) * int(i) for idx ,i in enumerate(nobel.split()) if i != '0')
 
 def color_tokens(tokens, card=False):
 	if card:
@@ -83,7 +83,7 @@ def print_player(player):
 	else:
 		print('score:  ' + colored(str(player['score']), attrs=['bold']))
 	print('cards:  ' + color_tokens(player['cards'], True))
-	print('tokens: ' + color_tokens(player['tokens']))
+	print('tokens: ' + color_tokens(player['tokens']) + ' ')
 	print('nobles: ' + str(player['nobles']))
 	columns_to_show = [
 		'value',
@@ -112,7 +112,7 @@ def print_state(state, clear=True):
 	print('Round: ' + str(game_round))
 	
 	print('Nobels'.center(47, '='))
-	for i in state['nobels'].to_string(index=False).splitlines()[1:]: print(' '*14 + color_nobel(i))
+	for i in state['nobels'].to_string(index=False).splitlines()[1:]: print(' '*17 + color_nobel(i))
 	print()
 
 	#print(str(state['tier3'][columns_to_show]).splitlines()[0])
@@ -171,19 +171,18 @@ if len(sys.argv) != 1:
 	for idx, player_type in enumerate(sys.argv[1:]):
 		if player_type != 'p':
 			model_name = player_type
-			h5 = ''.join(['splendor_ai/' + model_name, '.h5'])
-			json = ''.join(['splendor_ai/' + model_name, '.json'])
-			if not all(map(os.path.isfile, [h5, json])):
+			h5 = ''.join(['splendor_ai/brains/' + model_name, '.h5'])
+			if not os.path.isfile(h5):
 				print('supplied model "{}" doesn\'t exist'.format(model_name))
 				sys.exit()
 
-			model = load_model('splendor_ai/' + model_name)
+			model = load_model(model_name)
 			players[idx] = 1
 
 short = {'g': 'green', 'w': 'white', 'b': 'blue', 'k': 'black', 'r': 'red'}
 player_index = 0
-game_round = 0
-anty_nystagmus = 1
+game_round = 1
+anty_nystagmus = 0
 input('Press ENTER to start game')
 print_state(s)
 
@@ -250,9 +249,17 @@ while True:
 				to_pick = {i: 0 for i in env.colors}
 				for color_letter in user_input:
 					to_pick[short[color_letter]] += 1
-				move = {'pick': to_pick}
+
+				if s['return_tokens']:
+					move = {'return': to_pick}
+				else:
+					move = {'pick': to_pick}
+
 			except Exception as e:
-				print('cant pick, error: ' + str(e))
+				if s['return_tokens']:
+					print('can\'t return, error: ' + str(e))
+				else:
+					print('can\'t pick, error: ' + str(e))
 				continue
 
 		else:
@@ -266,10 +273,11 @@ while True:
 			continue
 
 	s = env.return_state(False)
-	player_index += 1
-	if player_index == 4:
-		player_index = 0
+	player_index = s['player_index']
+
+	if player_index == 0 and not s['return_tokens'] and not s['end']:
 		game_round += 1
+
 	print_state(s)
 	if s['end']:
 		break
