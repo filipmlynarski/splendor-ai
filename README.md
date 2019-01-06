@@ -22,3 +22,4 @@ Try Playing Yourself
 ```
 python3 interactive_splendor.py p model_name
 ```
+![alt text](https://raw.githubusercontent.com/filipmlynarski/splendor-ai/master/interactive_splendor.png)
