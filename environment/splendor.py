@@ -3,6 +3,7 @@ warnings.filterwarnings("ignore", message="numpy.dtype size changed")
 warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
 
 import os
+import json
 import numpy as np
 import pandas as pd
 import itertools as it
@@ -78,17 +79,52 @@ class Splendor:
 			'hidden_t1': len(self.tier1) - len(shown_tier1),
 			'hidden_t2': len(self.tier2) - len(shown_tier2),
 			'hidden_t3': len(self.tier3) - len(shown_tier3),
-			'nobels': self.nobles.copy(),
+			'nobles': self.nobles.copy(),
 			'player_index': self.current_player,
 			'return_tokens': self.return_tokens,
 			'end': self.end
 		}
 
 		if self.end and self.current_player == 0:
-			#self.reset(False)
-			pass
+			self.reset(False)
+			#pass
 
 		return game
+
+	def card_to_dict(self, card):
+		print(card['score'])
+
+	def return_json_state(self):
+		return_state = {}
+
+		players = deepcopy(self.players)
+		for player in players:
+			if len(player['reservations']) > 0:
+				for idx, reservation in enumerate(player['reservations']):
+					player['reservations'][idx] = reservation.to_dict('index')
+
+		return_state['players'] = players
+		return_state['tokens'] = self.tokens.copy()
+
+		shown_tier1 = self.tier1[-min(4, len(self.tier1)):].to_dict('index')
+		shown_tier2 = self.tier2[-min(4, len(self.tier2)):].to_dict('index')
+		shown_tier3 = self.tier3[-min(4, len(self.tier3)):].to_dict('index')
+
+		return_state['tier1'] = shown_tier1
+		return_state['tier2'] = shown_tier2
+		return_state['tier3'] = shown_tier3
+
+		return_state['hidden_t1'] = len(self.tier1) - len(shown_tier1)
+		return_state['hidden_t2'] = len(self.tier2) - len(shown_tier2)
+		return_state['hidden_t3'] = len(self.tier3) - len(shown_tier3)
+
+		return_state['nobles'] = self.nobles.to_dict('index')
+
+		return_state['player_index'] = self.current_player
+		return_state['return_tokens'] = self.return_tokens
+		return_state['end'] = self.end
+
+		return json.dumps(return_state, indent=4)
 
 	def move(self, move):
 		action = list(move.keys())
@@ -101,7 +137,7 @@ class Splendor:
 			assert False, 'invalid action, avaliable actions: ' + str(self.avaliable_actions)
 
 		if self.return_tokens and action != 'return':
-			assert False, 'invalid action you can only return tokens when you have more than 10'
+			assert False, 'invalid action, when you have more than 10 tokens you can only return them'
 
 		if action == 'buy':
 			requested_card = move[action]
@@ -304,7 +340,7 @@ class Splendor:
 
 		# If player have too many tokens he has to return excess in next move
 		player_tokens = self.players[self.current_player]['tokens'].values()
-		if sum(player_tokens) >= MAXIMUM_TOKENS:
+		if sum(player_tokens) > MAXIMUM_TOKENS:
 			self.return_tokens = True
 
 	def can_reserve(self, card):
@@ -338,7 +374,7 @@ class Splendor:
 				if this_cards[color] < int(this_nobleman[color]):
 					break
 
-			# Player can receive at most 1 nobel at reach round which gives him 3 points
+			# Player can receive at most 1 nobel at each round which gives him 3 points
 			else:
 				self.players[self.current_player]['nobles'] += 1
 				self.players[self.current_player]['score'] += NOBLEMAN_VALUE
@@ -381,6 +417,10 @@ class Splendor:
 			shown_tier1 = self.tier1[-min(4, len(self.tier1)):]
 			shown_tier2 = self.tier2[-min(4, len(self.tier2)):]
 			shown_tier3 = self.tier3[-min(4, len(self.tier3)):]
+
+			#shown_tier1 = self.tier1[:min(4, len(self.tier1))]
+			#shown_tier2 = self.tier2[:min(4, len(self.tier2))]
+			#shown_tier3 = self.tier3[:min(4, len(self.tier3))]
 
 			for card in range(len(shown_tier1)):
 				this_card = shown_tier1[card: card+1]
@@ -456,6 +496,11 @@ class Splendor:
 	def set_cards(self):
 		# Shuffle all the cards and nobles
 		shuffled_cards = self.primary_cards.sample(frac=1)
+		#shuffled_cards[-4:-3] = self.primary_cards[5:6].values
+		#shuffled_cards[-3:-2] = self.primary_cards[5:6].values
+		#shuffled_cards[-2:-1] = self.primary_cards[5:6].values
+		#shuffled_cards[-1:] = self.primary_cards[5:6].values
+
 		shuffled_nobles = self.primary_nobles.sample(frac=1)
 
 		# Organize cards in relation to their tier
@@ -494,3 +539,6 @@ class Splendor:
 		}
 
 		self.players = [deepcopy(primary_player) for _ in range(4)]
+
+if __name__ == '__main__':
+	env = Splendor()
