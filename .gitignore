@@ -3,3 +3,7 @@ __pycache__
 *.py[cod]
 
 splendor_ai/brain*
+splendor_ai/minst_cnn.py
+splendor_ai/network.gv
+splendor_ai/network.gv.pdf
+
