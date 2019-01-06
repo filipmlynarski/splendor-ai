@@ -5,6 +5,7 @@ under_abspath = '/'.join(os.path.abspath(__file__).split('/')[:-2])
 
 sys.path.insert(0, under_abspath)
 from environment import splendor
+from print_board import PrintBoard
 
 import json
 import numpy as np
@@ -15,6 +16,7 @@ from keras.models import Sequential
 from keras.engine import InputLayer
 from keras.layers import Dense
 from keras.models import model_from_json
+from keras.layers import LeakyReLU
 
 import json
 import time
@@ -55,7 +57,7 @@ input_nodes = sum([
 	#BOARD
 	#========
 	6,			# Tokens
-	3 * 4 * 7,	# Cards (3 tiers, 4 cards each, 7 nodes per card)
+	3 * 4 * 11,	# Cards (3 tiers, 4 cards each, 11 nodes per card)
 	5 * 5,		# Nobles
 	3,			# Hidden cards
 	#========
@@ -64,11 +66,17 @@ input_nodes = sum([
 	4 * sum([
 		6,		# Tokens
 		5,		# Cards
-		3 * 7,	# Reservations
+		3 * 11,	# Reservations
 		1		# Score
 	])
 ])
+#input_nodes = 966
+input_nodes = 1312
 
+output_nodes = 88
+output_nodes = 13
+
+'''
 def print_players(players):
 	for idx in range(len(players)):
 		print('player' + str(idx+1))
@@ -91,9 +99,10 @@ def print_state(state, clear=True):
 			'\tT2 hidden cards: ' + str(state['hidden_t2']) + 
 			'\tT3 hidden cards: ' + str(state['hidden_t3']))
 	print('Boards tokens: ' + str(state['tokens']))
-	print('Nobels:\n' + state['nobels'].to_string(index=False))
+	print('Nobels:\n' + state['nobles'].to_string(index=False))
 	print()
 	print_players(state['players'])
+'''
 
 def state_to_nodes(state):
 	return_nodes = np.zeros(input_nodes)
@@ -104,32 +113,37 @@ def state_to_nodes(state):
 	tier1 = [i[1:] for i in state['tier1'].values]
 	if len(tier1) > 0:
 		tier1 = np.concatenate(tier1, axis=0)
+		tier1 = tier_to_vector2(tier1)
+
 		return_nodes[6:6+len(tier1)] = tier1
-	#return_nodes[6:34] = np.concatenate(tier1, axis=0)
 
 	tier2 = [i[1:] for i in state['tier2'].values]
 	if len(tier2) > 0:
 		tier2 = np.concatenate(tier2, axis=0)
+		tier2 = tier_to_vector2(tier2)
+
 		return_nodes[34:34+len(tier2)] = tier2
-	#return_nodes[34:62] = 
+		return_nodes[50:50+len(tier2)] = tier2
 	
 	tier3 = [i[1:] for i in state['tier3'].values]
 	if len(tier3) > 0:
 		tier3 = np.concatenate(tier3, axis=0)
+		tier3 = tier_to_vector2(tier3)
+
 		return_nodes[62:62+len(tier3)] = tier3
-	#90
+		return_nodes[94:94+len(tier3)] = tier3
 	
-	nobles = state['nobels'].values
+	nobles = state['nobles'].values
 	if len(nobles) > 0:
 		nobles = np.concatenate(nobles, axis=0)
-		return_nodes[90:90+len(nobles)] = nobles
+		return_nodes[138:138+len(nobles)] = nobles
 
-	return_nodes[115] = state['hidden_t1']
-	return_nodes[116] = state['hidden_t2']
-	return_nodes[117] = state['hidden_t3']
+	return_nodes[163] = state['hidden_t1']
+	return_nodes[164] = state['hidden_t2']
+	return_nodes[165] = state['hidden_t3']
 
 	for player in range(4):
-		begin = 118 + player*33
+		begin = 166 + player*45
 		
 		sorted_tokens = [value for (key, value) in sorted(list(state['players'][player]['tokens'].items()))]
 		return_nodes[begin: begin+6] = sorted_tokens
@@ -138,21 +152,200 @@ def state_to_nodes(state):
 		return_nodes[begin+6: begin+11] = sorted_tokens
 
 		for idx, i in enumerate(state['players'][player]['reservations']):
-			this_begin = begin+11+idx*7
+			this_begin = begin+11+idx*11
 			this_reservation = i.values.tolist()[0][1:]
-			return_nodes[this_begin: this_begin+7] = this_reservation
+			this_reservation = card_to_vector2(this_reservation)
 
-		return_nodes[begin+32] = state['players'][player]['score']
+			return_nodes[this_begin: this_begin+11] = this_reservation
+
+		return_nodes[begin+44] = state['players'][player]['score']
+
+	'''print_state(state)
+	
+	print('GAME TOKENS')
+	print(return_nodes[:6])
+
+	print('CARDS')
+	for node_card in range(int(84/7)):
+		print(return_nodes[6 + node_card*7: 6 + (node_card+1) * 7])
+
+	print('NOBELS')
+	print(return_nodes[90:115])
+
+	print('HIDDEN CARDS')
+	print(return_nodes[115:118])
+
+	print('PLAYERS')
+	print(return_nodes[118:150])
+	1/0'''
+	return return_nodes
+
+def state_to_nodes2(state):
+	return_nodes = np.zeros(input_nodes)
+
+	return_nodes[:40] = tokens_to_vector(state['tokens'])
+
+	players_cards = []
+	for player in state['players']:
+		tokens_with_keys = sorted(player['tokens'].items(), key=lambda x: x[0])
+		players_cards.append([i[1] for i in tokens_with_keys if i[0] != 'gold'])
+	players_cards[0] = [1,1,1,1,1]
+	tier1 = [i[1:] for i in state['tier1'].values]
+	if len(tier1) > 0:
+		tier1 = np.concatenate(tier1, axis=0)
+		#tier1 = subtract_cards(tier1, players_cards[0])
+		tier1 = tier_to_vector(tier1)
+
+		return_nodes[6:6+len(tier1)] = tier1
+
+	tier2 = [i[1:] for i in state['tier2'].values]
+	if len(tier2) > 0:
+		tier2 = np.concatenate(tier2, axis=0)
+		#tier2 = subtract_cards(tier2, players_cards[0])
+		tier2 = tier_to_vector(tier2)
+
+		return_nodes[170:170+len(tier2)] = tier2
+	
+	tier3 = [i[1:] for i in state['tier3'].values]
+	if len(tier3) > 0:
+		tier3 = np.concatenate(tier3, axis=0)
+		#tier3 = subtract_cards(tier3, players_cards[0])
+		tier3 = tier_to_vector(tier3)
+
+		return_nodes[334:334+len(tier3)] = tier3
+
+	nobles = state['nobles'].values
+	if len(nobles) > 0:
+		nobles = np.concatenate(nobles, axis=0)
+		#nobles = subtract_cards(nobles, players_cards[0], nobles=True)
+		nobles = nobles_to_vector(nobles)
+
+		return_nodes[498:498+len(nobles)] = nobles
+
+	for player in range(4):
+		begin = 662 + player*76
+		
+		return_nodes[begin: begin+40] = tokens_to_vector(state['players'][player]['tokens'])
+		return_nodes[begin+40: begin+75] = tokens_to_vector(state['players'][player]['cards'])
+
+		'''
+		for idx, i in enumerate(state['players'][player]['reservations']):
+			this_begin = begin+75+idx*37
+			this_reservation = i.values.tolist()[0][1:]
+			this_reservation = card_to_vector(this_reservation)
+
+			return_nodes[this_begin: this_begin+37] = this_reservation
+		'''
+		return_nodes[begin+75] = state['players'][player]['score']
 
 	return return_nodes
 
+def state_to_nodes3(state):
+	return_nodes = np.zeros((input_nodes))
+
+	sorted_tokens = [value for (key, value) in sorted(list(state['players'][0]['tokens'].items()))]
+	return_nodes[:6] = sorted_tokens
+
+	tier1 = [i[1:] for i in state['tier1'].values]
+	tier1 = np.concatenate(tier1, axis=0)
+	tier1 = tier_to_vector(tier1)
+
+	return_nodes = tier1[6:13]
+	print(return_nodes)
+	return return_nodes
+
+def subtract_cards(tier, cards, nobles=False):
+	zeros = np.zeros((len(tier)))
+	piece_size, start = 5, 2
+	if nobles:
+		piece_size, start = 5, 0
+
+	for i in range(0, len(tier), piece_size+start):
+		tier[i+start: i+start+piece_size] -= cards
+	tier = np.maximum(tier, zeros, casting='unsafe', dtype=int)
+	
+	return tier
+
+def nobles_to_vector(nobles):
+	return_nobles = np.zeros((5 * 7 * 5))
+
+	for i in range(5):
+		nobel = nobles[i*5: i*5 + 5]
+
+		nobel_idx = i*35
+		return_nobles[nobel_idx: nobel_idx+35] = tokens_to_vector(nobel)
+
+	return return_nobles
+
+def card_to_vector(card):
+	return_card = np.zeros((37))
+	return_card[:2] = card[:2]
+	return_card[2:37] = tokens_to_vector(card[2:])
+
+def card_to_vector2(card):
+	return_card = np.zeros((11))
+	return_card[0] = card[0]
+	return_card[card[1]] = 1
+	return_card[6:] = card[2:]
+
+	return return_card
+
+def tier_to_vector2(tier):
+	return_tier = np.zeros((11 * 4))
+
+	for i in range(len(tier)//7):
+		card = tier[i*7: i*7 + 7]
+		card_idx = i*11
+		return_tier[card_idx] = card[0]
+		return_tier[card_idx + card[1]] = 1
+		return_tier[card_idx+6: card_idx+11] = card[2:]
+
+	return return_tier
+
+def tier_to_vector(tier):
+	return_tier = np.zeros((41 * 4))
+
+	for i in range(len(tier)//7):
+		card = tier[i*7: i*7 + 7]
+		card_idx = i*41
+		return_tier[card_idx] = card[0]
+		return_tier[card_idx + card[1]] = 1
+		return_tier[card_idx+6: card_idx+41] = tokens_to_vector(card[2:])
+
+	return return_tier
+
+def tokens_to_vector(tokens):
+	if type(tokens) is dict:
+		if 'gold' in tokens:
+			return_tokens = np.zeros((5 * 7 + 5))
+		else:
+			return_tokens = np.zeros(5 * 7)
+
+		so_far = 0
+		for (key, value) in sorted(list(tokens.items())):
+			return_tokens[so_far: so_far + value] = 1
+
+			if key == 'gold':
+				so_far += 5
+			else:
+				so_far += 7
+	else:
+		return_tokens = np.zeros(5 * 7)
+		for idx, value in enumerate(tokens):
+			return_tokens[idx*7: idx*7 + value] = 1
+
+	return return_tokens
+
 def combination_to_tokens(combination):
+	COLORS = ['green', 'white', 'blue', 'black', 'red']
 	to_pick = {c: 0 for c in COLORS}
 	for color_idx in combination:
 		to_pick[COLORS[color_idx]] += 1
 	return to_pick
 
 def step(move, state, env, print_move=False):
+	COLORS = env.colors
+
 	if move in range(30):
 		if move in range(10):
 			combination = pick_tokens['3'][move]
@@ -228,6 +421,42 @@ def step(move, state, env, print_move=False):
 		return
 	return env.move(move)
 
+def step3(move, state, env, print_move=False):
+	COLORS = env.colors
+
+	if move in range(10):
+		combination = pick_tokens['3'][move]
+		tokens = combination_to_tokens(combination)
+		move = {'pick': tokens}
+
+	elif move == 10:
+		card = state['tier1'][:1]
+		move = {'buy': card}
+
+	else:
+		card = state['tier1'][:1]
+		move = {'reserve': card}
+
+	return env.move(move)
+
+def avaliable_outputs3(state, env):
+	return_nodes = np.zeros(output_nodes)
+	player_tokens = state['players'][0]['tokens']
+
+	if not state['return_tokens']:
+		if sum(player_tokens.values()) <= 7:
+			for idx, combination in enumerate(pick_tokens['3']):
+				if all(state['tokens'][env.colors[i]] >= 1 for i in combination):
+					return_nodes[idx] = 1
+
+	this_card = state['tier1'][:1]
+	if self.can_afford(this_card):
+		return_nodes[10] = 1
+	return_nodes[11] = 1
+	return_nodes[12] = 1
+
+	return return_nodes
+
 def choose_action(s, model, env):
 	aval_vector = env.avaliable_outputs()
 	if sum(aval_vector) != 1:
@@ -239,12 +468,15 @@ def choose_action(s, model, env):
 	else:
 		x = np.array(state_to_nodes(s)).reshape(1, input_nodes)
 		raw_prediction = model.predict(x)
-				
+	
 	prediction = raw_prediction * aval_vector
 	a = np.argmax(prediction[0])
 	if prediction[0][a] <= 0:
 		not0 = prediction != 0
 		a = np.argmax(not0)
+
+	if aval_vector[a] == 0:
+		a = len(aval_vector) - 1
 
 	return a
 
@@ -253,7 +485,8 @@ def reward(state, last_state):
 	last_me = last_state['players'][0]
 	score_difference = me['score'] - last_me['score']
 	cards_difference = sum(me['cards'].values()) - sum(last_me['cards'].values())
-	good_boy = cards_difference + score_difference**2
+	#good_boy = cards_difference + score_difference**2
+	good_boy = sum(me['cards'].values()) + me['score']**2
 	if good_boy != 0:
 		return good_boy
 	return -.4
@@ -277,23 +510,42 @@ def load_model(model_name):
 	#loaded_model = model_from_json(loaded_model_json)
 	hidden_layer_size = int((input_nodes+output_nodes) / 2)
 	loaded_model = Sequential()
-	loaded_model.add(InputLayer(batch_input_shape=(1, input_nodes)))
+
+	# Input Layer
+	#loaded_model.add(InputLayer(batch_input_shape=(1, input_nodes)))
+	loaded_model.add(Dense(input_nodes, activation='linear', input_dim=input_nodes))
+
+	# Hidden layers
+	loaded_model.add(Dense(input_nodes, activation='sigmoid'))
+	#loaded_model.add(LeakyReLU(alpha=.001))
 	loaded_model.add(Dense(hidden_layer_size, activation='sigmoid'))
 	loaded_model.add(Dense(hidden_layer_size, activation='sigmoid'))
+
+	# Output layer
 	loaded_model.add(Dense(output_nodes, activation='linear'))
-	# load weights into new model
+
+	# load weights and compile model
 	loaded_model.load_weights(abspath + 'brains/' + model_name + ".h5")
 	loaded_model.compile(loss='mse', optimizer='adam', metrics=['mae'])
-	#print("Loaded model from disk")
 
 	return loaded_model
 
 def create_model(hidden_layer_size, output_nodes):
 	model = Sequential()
-	model.add(InputLayer(batch_input_shape=(1, input_nodes)))
+	
+	# Input Layer
+	#model.add(InputLayer(batch_input_shape=(1, input_nodes)))
+	model.add(Dense(input_nodes, activation='linear', input_dim=input_nodes))
+	
+	# Hidden Layers
+	model.add(Dense(input_nodes, activation='sigmoid'))
+	#model.add(LeakyReLU(alpha=.001))
 	model.add(Dense(hidden_layer_size, activation='sigmoid'))
 	model.add(Dense(hidden_layer_size, activation='sigmoid'))
+	
+	# Output layer
 	model.add(Dense(output_nodes, activation='linear'))
+	
 	model.compile(loss='mse', optimizer='adam', metrics=['mae'])
 	return model
 
@@ -393,9 +645,9 @@ if __name__ == '__main__':
 				try:
 					new_s = step(a, s, env)
 				except:
-					print_state(s)
+					PrintBoard.print_state(s, game_round, 0)
 					step(a, s, env, True)
-					1/0
+					exit('exiting')
 
 				if not new_s['return_tokens']:
 					break
@@ -403,35 +655,43 @@ if __name__ == '__main__':
 			if a == 87:
 				mr_87 += 1
 
-			for dumb_model in dumb_models:
+			for idx, dumb_model in enumerate(dumb_models):
 				while True:
 					dumb_a = choose_action(new_s, dumb_model, env)
 					try:
 						new_s = step(dumb_a, new_s, env)
 					except:
-						print_state(new_s)
+						PrintBoard.print_state(new_s, game_round, idx)
 						step(dumb_a, new_s, env, True)
-						1/0
+						exit('exiting')
 
 					if not new_s['return_tokens']:
 						break
 				if dumb_a == 87:
 					mr_87 += 1
 
-			r = reward(new_s, s)
-
 			done = new_s['end']
+
 			aval_vector = env.avaliable_outputs()
 			new_x = np.array(state_to_nodes(new_s)).reshape(1, input_nodes)
-			target = r + this_brain['y'] * np.max(model.predict(new_x)*aval_vector)
-			target_vec = model.predict(new_x)[0]
+			next_state_pred = model.predict(new_x)
+			
+			r = reward(new_s, s)
+			target = r + this_brain['y'] * np.max(next_state_pred*aval_vector)
+			target_vec = next_state_pred[0]
+			#print('ai prediction:', target_vec[a])
+			#print('correct:', target)
+			#print()
 			target_vec[a] = target
 			model.fit(new_x, target_vec.reshape(-1, output_nodes), epochs=1, verbose=0)
 			s = deepcopy(new_s)
+
 			r_sum += r
 
 			if mr_87 == 4 or game_round > 60:
 				break
+
+		PrintBoard.print_state(s, game_round, 0)
 
 		if any(i['score'] >= 15 for i in s['players']):
 			#print('final score: ' + str([i['score'] for i in s['players']]))
@@ -467,13 +727,21 @@ if __name__ == '__main__':
 			dump_model(model, model_name)
 			dumb_models = [load_model(model_name) for _ in range(4)]
 			this_brain['episodes_done'] = i
-			save(this_brain)
+
+			brains_info[model_name] = this_brain
+			save(brains_info)
 		
 		r_avg_list.append(r_sum)
 
 		if os.path.isfile('stop'):
 			print('stopping')
 			break
+
+	dump_model(model, model_name)
+	this_brain['episodes_done'] = i
+	
+	brains_info[model_name] = this_brain
+	save(brains_info)
 
 	chunk = 10
 	r_mean = []
@@ -482,7 +750,3 @@ if __name__ == '__main__':
 
 	plt.plot([i*chunk for i in range(len(r_mean))], r_mean)
 	plt.show()
-
-	dump_model(model, model_name)
-	this_brain['episodes_done'] = i
-	save(this_brain)
